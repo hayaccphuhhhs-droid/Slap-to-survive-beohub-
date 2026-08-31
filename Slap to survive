@@ -1,0 +1,471 @@
+local Rayfield = loadstring(game:HttpGet('https://raw.githubusercontent.com/SiriusSoftwareLTD/Rayfield/main/source.lua'))()
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local VirtualUser = game:GetService("VirtualUser")
+local player = Players.LocalPlayer
+
+-- DANH SÁCH QUÁI
+local zombieList = {
+    ["Basic Zombie"] = true,
+    ["Runner"] = true,
+    ["Traffic Cone Zombie"] = true,
+    ["Brute"] = true,
+    ["Necromancer"] = true,
+    ["Pelter"] = true,
+    ["Sprinter"] = true,
+    ["Lobber"] = true,
+    ["Stove Top Zombie"] = true,
+    ["Boomer"] = true,
+    ["Dasher"] = true,
+    ["King Zombie"] = true,
+    ["Hurler"] = true,
+    ["Blaster"] = true,
+    ["Detonator"] = true,
+    ["Juggernaut"] = true,
+    ["Charger"] = true,
+    ["Bombardier"] = true,
+    ["Mega Splitter"] = true,
+    ["Splitter"] = true,
+    ["Nuke"] = true,
+    ["Basic Alien"] = true,
+    ["Traffic Cone Alien"] = true,
+    ["Stove Top Alien"] = true,
+    ["King Alien"] = true,
+    ["Basic Scorcher"] = true,
+    ["Traffic Cone Scorcher"] = true,
+    ["King Scorcher"] = true,
+    ["Stove Top Scorcher"] = true,
+    ["Splitterling"] = true,
+    ["Toxic Zombie"] = true,
+    ["Toxic Alien"] = true,
+    ["Toxic Scorcher"] = true,
+    ["Frozen Zombie"] = true,
+    ["Frozen Alien"] = true,
+    ["Frozen Scorcher"] = true,
+    ["Phantom"] = true
+}
+
+-- BIẾN
+local espZombieEnabled = false
+local espPlayerEnabled = false
+local autoFarmEnabled = false
+local hitboxEnabled = false
+local antiRagdollEnabled = false
+local autoClickEnabled = false
+local noClipEnabled = false
+
+local backDistance = 10
+local heightOffset = 7
+local attackRange = 18
+local safeHoverHeight = 50
+local hitboxSize = 15
+local isHealingMode = false
+local lastGroundY = nil
+local zombieKillCount = 0
+
+-- TẠO UI
+local Window = Rayfield:CreateWindow({
+    Name = "Beohub Mobile",
+    LoadingTitle = "Đang tải...",
+    LoadingSubtitle = "by Grok",
+    ConfigurationSaving = { Enabled = false },
+    Discord = { Enabled = false },
+    KeySystem = false
+})
+
+local TabMain = Window:CreateTab("Chức Năng", 4483362458)
+local TabESP = Window:CreateTab("ESP", 4483362458)
+local TabOther = Window:CreateTab("Khác", 4483362458)
+
+-- TAB ESP
+TabESP:CreateToggle({
+    Name = "ESP Zombie",
+    CurrentValue = false,
+    Flag = "ZombieEspToggle",
+    Callback = function(Value) espZombieEnabled = Value end,
+})
+
+TabESP:CreateToggle({
+    Name = "ESP Player",
+    CurrentValue = false,
+    Flag = "PlayerEspToggle",
+    Callback = function(Value) espPlayerEnabled = Value end,
+})
+
+-- TAB CHÍNH
+TabMain:CreateToggle({
+    Name = "Auto Farm (Gom 5 Zombie)",
+    CurrentValue = false,
+    Flag = "AutoFarmToggle",
+    Callback = function(Value)
+        autoFarmEnabled = Value
+        isHealingMode = false
+        lastGroundY = nil
+    end,
+})
+
+TabMain:CreateToggle({
+    Name = "Auto Click (Tự đánh)",
+    CurrentValue = false,
+    Flag = "AutoClickToggle",
+    Callback = function(Value) autoClickEnabled = Value end,
+})
+
+TabMain:CreateToggle({
+    Name = "Hitbox Big (Tròn)",
+    CurrentValue = false,
+    Flag = "HitboxToggle",
+    Callback = function(Value) hitboxEnabled = Value end,
+})
+
+TabMain:CreateSlider({
+    Name = "Kích thước Hitbox",
+    Range = {5, 50},
+    Increment = 5,
+    Suffix = "Size",
+    CurrentValue = 15,
+    Flag = "HitboxSizeSlider",
+    Callback = function(Value) hitboxSize = Value end,
+})
+
+TabMain:CreateSlider({
+    Name = "Khoảng cách đứng sau",
+    Range = {1, 20},
+    Increment = 1,
+    Suffix = "Studs",
+    CurrentValue = 10,
+    Flag = "FarmDistSlider",
+    Callback = function(Value) backDistance = Value end,
+})
+
+TabMain:CreateSlider({
+    Name = "Độ cao lơ lửng",
+    Range = {0, 20},
+    Increment = 1,
+    Suffix = "Studs",
+    CurrentValue = 7,
+    Flag = "FarmHeightSlider",
+    Callback = function(Value) heightOffset = Value end,
+})
+
+-- TAB KHÁC
+TabOther:CreateToggle({
+    Name = "Anti Ragdoll",
+    CurrentValue = false,
+    Flag = "AntiRagdollToggle",
+    Callback = function(Value) antiRagdollEnabled = Value end,
+})
+
+TabOther:CreateToggle({
+    Name = "No Clip (Xuyên tường)",
+    CurrentValue = false,
+    Flag = "NoClipToggle",
+    Callback = function(Value) noClipEnabled = Value end,
+})
+
+local killCounterLabel = TabOther:CreateParagraph({
+    Title = "Zombie đã hạ",
+    Content = "0 con"
+})
+
+---------------------------------------------------------
+-- ESP
+---------------------------------------------------------
+local function cleanName(name)
+    return name:gsub("%s*%b()", ""):gsub("%s+", " ")
+end
+
+RunService.RenderStepped:Connect(function()
+    -- ESP Zombie
+    if not espZombieEnabled then
+        for _, obj in pairs(workspace:GetDescendants()) do
+            if obj:FindFirstChild("ZombieHighlight") then obj.ZombieHighlight:Destroy() end
+            if obj:FindFirstChild("ZombieBillboard") then obj.ZombieBillboard:Destroy() end
+        end
+    else
+        for _, obj in pairs(workspace:GetDescendants()) do
+            if obj:IsA("Model") and zombieList[obj.Name] then
+                local head = obj:FindFirstChild("Head") or obj:FindFirstChild("HumanoidRootPart")
+                local hum = obj:FindFirstChildOfClass("Humanoid")
+                if head and hum and hum.Health > 0 then
+                    if not obj:FindFirstChild("ZombieHighlight") then
+                        local hl = Instance.new("Highlight")
+                        hl.Name = "ZombieHighlight"
+                        hl.Adornee = obj
+                        hl.FillColor = Color3.fromRGB(255, 30, 30)
+                        hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+                        hl.FillTransparency = 0.4
+                        hl.Parent = obj
+                    end
+                    if not head:FindFirstChild("ZombieBillboard") then
+                        local bb = Instance.new("BillboardGui")
+                        bb.Name = "ZombieBillboard"
+                        bb.Adornee = head
+                        bb.Size = UDim2.new(0, 120, 0, 30)
+                        bb.StudsOffset = Vector3.new(0, 3, 0)
+                        bb.AlwaysOnTop = true
+                        local txt = Instance.new("TextLabel")
+                        txt.Size = UDim2.new(1, 0, 1, 0)
+                        txt.BackgroundTransparency = 1
+                        txt.Text = cleanName(obj.Name)
+                        txt.TextColor3 = Color3.fromRGB(255, 80, 80)
+                        txt.TextStrokeTransparency = 0
+                        txt.Font = Enum.Font.SourceSansBold
+                        txt.TextSize = 14
+                        txt.Parent = bb
+                        bb.Parent = head
+                    end
+                end
+            end
+        end
+    end
+
+    -- ESP Player
+    if not espPlayerEnabled then
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= player and p.Character then
+                if p.Character:FindFirstChild("PlayerHighlight") then p.Character.PlayerHighlight:Destroy() end
+                local head = p.Character:FindFirstChild("Head")
+                if head and head:FindFirstChild("PlayerBillboard") then head.PlayerBillboard:Destroy() end
+            end
+        end
+    else
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= player and p.Character then
+                local char = p.Character
+                local head = char:FindFirstChild("Head") or char:FindFirstChild("HumanoidRootPart")
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if head and hum and hum.Health > 0 then
+                    if not char:FindFirstChild("PlayerHighlight") then
+                        local hl = Instance.new("Highlight")
+                        hl.Name = "PlayerHighlight"
+                        hl.Adornee = char
+                        hl.FillColor = Color3.fromRGB(0, 255, 0)
+                        hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+                        hl.FillTransparency = 0.4
+                        hl.Parent = char
+                    end
+                    if not head:FindFirstChild("PlayerBillboard") then
+                        local bb = Instance.new("BillboardGui")
+                        bb.Name = "PlayerBillboard"
+                        bb.Adornee = head
+                        bb.Size = UDim2.new(0, 120, 0, 30)
+                        bb.StudsOffset = Vector3.new(0, 3, 0)
+                        bb.AlwaysOnTop = true
+                        local txt = Instance.new("TextLabel")
+                        txt.Size = UDim2.new(1, 0, 1, 0)
+                        txt.BackgroundTransparency = 1
+                        txt.Text = cleanName(p.Name)
+                        txt.TextColor3 = Color3.fromRGB(0, 255, 0)
+                        txt.TextStrokeTransparency = 0
+                        txt.Font = Enum.Font.SourceSansBold
+                        txt.TextSize = 14
+                        txt.Parent = bb
+                        bb.Parent = head
+                    end
+                end
+            end
+        end
+    end
+end)
+
+---------------------------------------------------------
+-- ANTI RAGDOLL
+---------------------------------------------------------
+RunService.Stepped:Connect(function()
+    if not antiRagdollEnabled then return end
+    if player.Character then
+        local hum = player.Character:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+            hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+            if hum:GetState() == Enum.HumanoidStateType.Ragdoll or hum:GetState() == Enum.HumanoidStateType.FallingDown then
+                hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+            end
+        end
+        for _, child in pairs(player.Character:GetDescendants()) do
+            if child:IsA("BallSocketConstraint") or child:IsA("HingeConstraint") or (child:IsA("StringValue") and child.Name:lower():find("ragdoll")) then
+                child:Destroy()
+            end
+        end
+    end
+end)
+
+---------------------------------------------------------
+-- NO CLIP
+---------------------------------------------------------
+RunService.Stepped:Connect(function()
+    if not noClipEnabled then return end
+    if player.Character then
+        for _, part in pairs(player.Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.CanCollide = false
+            end
+        end
+    end
+end)
+
+---------------------------------------------------------
+-- HITBOX
+---------------------------------------------------------
+task.spawn(function()
+    while true do
+        if hitboxEnabled then
+            for _, obj in pairs(workspace:GetDescendants()) do
+                if obj:IsA("Model") and zombieList[obj.Name] then
+                    if not Players:GetPlayerFromCharacter(obj) and obj ~= player.Character then
+                        local zRoot = obj:FindFirstChild("HumanoidRootPart")
+                        local zHum = obj:FindFirstChildOfClass("Humanoid")
+                        if zRoot and zHum and zHum.Health > 0 then
+                            pcall(function()
+                                zRoot.Size = Vector3.new(hitboxSize, hitboxSize, hitboxSize)
+                                zRoot.Transparency = 0.6
+                                zRoot.BrickColor = BrickColor.new("Really red")
+                                zRoot.Material = Enum.Material.Neon
+                                zRoot.CanCollide = false
+                                local shape = zRoot:FindFirstChildOfClass("SpecialMesh")
+                                if not shape then
+                                    shape = Instance.new("SpecialMesh")
+                                    shape.MeshType = Enum.MeshType.Sphere
+                                    shape.Parent = zRoot
+                                end
+                            end)
+                        end
+                    end
+                end
+            end
+        else
+            for _, obj in pairs(workspace:GetDescendants()) do
+                if obj:IsA("Model") and zombieList[obj.Name] then
+                    local zRoot = obj:FindFirstChild("HumanoidRootPart")
+                    if zRoot then
+                        pcall(function()
+                            zRoot.Size = Vector3.new(2, 2, 1)
+                            zRoot.Transparency = 1
+                            local shape = zRoot:FindFirstChildOfClass("SpecialMesh")
+                            if shape then shape:Destroy() end
+                        end)
+                    end
+                end
+            end
+        end
+        task.wait(0.5)
+    end
+end)
+
+---------------------------------------------------------
+-- AUTO FARM + AUTO CLICK
+---------------------------------------------------------
+local trackedZombies = {}
+
+RunService.Stepped:Connect(function()
+    -- Đếm zombie
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") and zombieList[obj.Name] then
+            local zHum = obj:FindFirstChildOfClass("Humanoid")
+            if zHum then
+                if not trackedZombies[obj] then
+                    trackedZombies[obj] = zHum.Health
+                else
+                    if trackedZombies[obj] > 0 and zHum.Health <= 0 then
+                        zombieKillCount = zombieKillCount + 1
+                        killCounterLabel:Set({
+                            Title = "Zombie đã hạ",
+                            Content = zombieKillCount .. " con"
+                        })
+                    end
+                    trackedZombies[obj] = zHum.Health
+                end
+            end
+        end
+    end
+
+    if not autoFarmEnabled then return end
+    if not (player.Character and player.Character:FindFirstChild("HumanoidRootPart")) then return end
+
+    local myRoot = player.Character.HumanoidRootPart
+    local myHum = player.Character:FindFirstChildOfClass("Humanoid")
+    local tool = player.Character:FindFirstChildOfClass("Tool")
+
+    if not myHum or myHum.Health <= 0 then return end
+
+    if myHum.Health < 20 then
+        isHealingMode = true
+    elseif myHum.Health >= 50 then
+        isHealingMode = false
+    end
+
+    local zombieListNearby = {}
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") and zombieList[obj.Name] then
+            if not Players:GetPlayerFromCharacter(obj) and obj ~= player.Character then
+                local zRoot = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("Head")
+                local zHum = obj:FindFirstChildOfClass("Humanoid")
+                if zRoot and zHum and zHum.Health > 0 then
+                    local dist = (myRoot.Position - zRoot.Position).Magnitude
+                    table.insert(zombieListNearby, {Model = obj, Root = zRoot, Hum = zHum, Dist = dist})
+                end
+            end
+        end
+    end
+
+    table.sort(zombieListNearby, function(a, b) return a.Dist < b.Dist end)
+
+    if isHealingMode or #zombieListNearby == 0 then
+        pcall(function()
+            local targetY = (lastGroundY or myRoot.Position.Y) + safeHoverHeight
+            myRoot.CFrame = CFrame.new(myRoot.Position.X, targetY, myRoot.Position.Z)
+            myRoot.AssemblyLinearVelocity = Vector3.zero
+        end)
+    else
+        local targetZombies = {}
+        for i = 1, math.min(5, #zombieListNearby) do
+            table.insert(targetZombies, zombieListNearby[i])
+        end
+
+        local mainTarget = targetZombies[1]
+        lastGroundY = mainTarget.Root.Position.Y
+
+        local clumpCFrame = mainTarget.Root.CFrame
+        for _, zData in ipairs(targetZombies) do
+            pcall(function()
+                zData.Root.CFrame = clumpCFrame
+                zData.Root.AssemblyLinearVelocity = Vector3.zero
+            end)
+        end
+
+        pcall(function()
+            local targetCFrame = clumpCFrame * CFrame.new(0, heightOffset, backDistance)
+            myRoot.CFrame = CFrame.new(targetCFrame.Position, clumpCFrame.Position)
+            myRoot.AssemblyLinearVelocity = Vector3.zero
+
+            local currentDist = (myRoot.Position - clumpCFrame.Position).Magnitude
+            if currentDist <= attackRange then
+                if autoClickEnabled or autoFarmEnabled then
+                    if tool then
+                        tool:Activate()
+                        for _, zData in ipairs(targetZombies) do
+                            for _, v in pairs(tool:GetDescendants()) do
+                                if v:IsA("RemoteEvent") then
+                                    v:FireServer(zData.Root, zData.Hum)
+                                end
+                            end
+                        end
+                    end
+                    VirtualUser:CaptureController()
+                    VirtualUser:ClickButton1(Vector2.new(0, 0))
+                end
+            end
+        end)
+    end
+end)
+
+---------------------------------------------------------
+-- THÔNG BÁO
+---------------------------------------------------------
+Rayfield:Notify({
+    Title = "🚀 Beohub Mobile",
+    Content = "Bật toggle để dùng!",
+    Duration = 3
+})
